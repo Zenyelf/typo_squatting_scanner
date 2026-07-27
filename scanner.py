@@ -37,6 +37,13 @@ fat_words = {
     'z' : ['a', 's', 'x']
 }
 
+DOMAIN_BROKERS = [
+    "domaineasy.com", "hugedomains.com", "dan.com", "sedo.com", 
+    "afternic.com", "godaddy.com/forsale", "namecheap.com", 
+    "domainnamesales.com", "squadhelp.com", "uniregistry.com",
+    "networksolutions.com", "buydomains.com", "epimac.com"
+]
+
 def generate_mutation(base_url, tlds):
     mutated_domain = set()
 
@@ -120,13 +127,19 @@ def scanner(domain, sec_url, timeout_val, headers):
                 else:
                     status = "SAFE"
             else:
-                html_content = r.text.lower()
-                if "url=" in html_content and "refresh" in html_content:
-                    status = "PARKED_META_REDIRECT"
-                elif "window.location" in html_content:
-                    status = "PARKED_JS_REDIRECT"
+                url_lower = r.url.lower()
+                if any(broker in url_lower for broker in DOMAIN_BROKERS):
+                    status = "FOR_SALE_PARKED"
                 else:
-                    status = "UNKNOWN_THIRD_PARTY"
+                    html_content = r.text.lower()
+                    if "url=" in html_content and "refresh" in html_content:
+                        status = "PARKED_META_REDIRECT"
+                    elif "window.location" in html_content:
+                        status = "PARKED_JS_REDIRECT"
+                    elif "domain is for sale" in html_content or "buy this domain" in html_content:
+                        status = "FOR_SALE_PARKED"
+                    else:
+                        status = "UNKNOWN_THIRD_PARTY"
         
             return {"domain": domain, "ip": ip, "status": status, "details": r.url, "url": r.url}
 
@@ -188,9 +201,10 @@ def main():
         "SAFE": "🟩 SAFE",
         "AFFILIATE_SQUATTING": "🟥 AFFILIATE SQUATTING",
         "PARKED_META_REDIRECT": "🟥 PARKED DOMAIN (Meta Redirect)",
+        "FOR_SALE_PARKED": "🏷️  DOMAIN FOR SALE (Broker)",
         "PARKED_JS_REDIRECT": "🟥 PARKED DOMAIN (JS Redirect)",
         "UNKNOWN_THIRD_PARTY": "🟨 UNKNOWN / THIRD-PARTY",
-        "TIMEOUT": "⚠️ HTTP timed out"
+        "TIMEOUT": "⚠️  HTTP timed out"
     }
 
     active_results = []
