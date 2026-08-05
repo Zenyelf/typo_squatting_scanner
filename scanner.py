@@ -1,3 +1,5 @@
+#python scanner.py -u amazon.com
+
 import socket
 import requests
 from urllib.parse import urlparse
@@ -5,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import argparse
 import csv
 import urllib3
+import re
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -102,24 +105,56 @@ def generate_mutation(base_url, tlds):
 
     return mutated_domain
 
+def check_urlscan(domain, api_key):
+    headers = {"API-Key": api_key, "Content-Type": "application/json"}
+    search_url = f"https://urlscan.io/api/v1/search/?q=domain:{domain}"
+    
+    try:
+        response = requests.get(search_url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            
+            if not results:
+                return "🔍 URLScan: No previous scans"
+            
+            latest_scan = results[0]
+            verdicts = latest_scan.get("verdicts", {}).get("overall", {})
+            malicious = verdicts.get("malicious", False)
+            score = verdicts.get("score", 0)
+            
+            if malicious or score > 0:
+                return f"🚨 URLScan: MALICIOUS (Score: {score})"
+            
+            report_url = latest_scan.get("result", "")
+            return f"📸 URLScan: Clean (Scan: {report_url})"
+            
+        elif response.status_code == 429:
+            return "⚠️ URLScan: Rate Limited"
+        else:
+            return f"⚠️ URLScan: HTTP {response.status_code}"
+    except Exception:
+        return "⚠️ URLScan: Request Failed"
+
 
 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 registered_domains = {}
 
-def scanner(domain, sec_url, timeout_val, headers):
+def scanner(domain, sec_url, timeout_val, headers, urlscan_key=None):
     try:
         ip = socket.gethostbyname(domain)  
         r = None
         try:
-            r = requests.get(f"http://{domain}", headers=headers, timeout=3, allow_redirects=True)
+            r = requests.get(f"https://{domain}", headers=headers, timeout=timeout_val, allow_redirects=True)
         except requests.exceptions.RequestException:
             try:
-                r = requests.get(f"http://{domain}", headers=headers, timeout=3, allow_redirects=True, verify=False)
+                r = requests.get(f"https://{domain}", headers=headers, timeout=timeout_val, allow_redirects=True, verify=False)
             except requests.exceptions.RequestException:
-                return {"domain": domain, "ip": ip, "status": "TIMEOUT", "details": "HTTP/HTTPS timed out", "url": ""}
+                return {"domain": domain, "ip": ip, "status": "TIMEOUT", "details": "HTTP/HTTPS timed out", "url": f"https://{domain}", "urlscan": "N/A"}
 
         if r is not None:    
             final_host = urlparse(r.url).hostname or ""
+            details = r.url
 
             if final_host.endswith('.' + sec_url) or final_host == sec_url:
                 if "tag=" in r.url or "ref=" in r.url:
@@ -140,8 +175,23 @@ def scanner(domain, sec_url, timeout_val, headers):
                         status = "FOR_SALE_PARKED"
                     else:
                         status = "UNKNOWN_THIRD_PARTY"
-        
-            return {"domain": domain, "ip": ip, "status": status, "details": r.url, "url": r.url}
+
+                        match = re.search(r'<title[^>]*>(.*?)</title>', r.text, re.IGNORECASE | re.DOTALL)
+                        page_title = match.group(1).strip() if match else "No Title Found"
+                        
+                        page_title = re.sub(r'\s+', ' ', page_title)
+
+                        if len(page_title) > 40:
+                            page_title = page_title[:37] + "..."
+                            
+                        details = f"{r.url} | Title: [{page_title}]"
+
+            urlscan_result = "N/A"
+            if urlscan_key and status != "SAFE":
+                urlscan_result = check_urlscan(domain, urlscan_key)
+                details = f"{details} | {urlscan_result}"
+
+            return {"domain": domain, "ip": ip, "status": status, "details": details, "url": r.url, "urlscan": urlscan_result}
 
     except socket.gaierror:
         return None
@@ -175,6 +225,12 @@ def parse_args():
         type=str,
         default=None,
         help="Save active findings to a CSV file (e.g. results.csv)"
+    )
+
+    parser.add_argument(
+        "-us", "--urlscan-key", 
+        type=str, default=None, 
+        help="Optional: URLScan.io API Key for threat intel lookup"
     )
     
     return parser.parse_args()
@@ -210,7 +266,7 @@ def main():
     active_results = []
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(scanner, domain, sec_url, args.timeout, headers) for domain in mutated_domain]
+        futures = [executor.submit(scanner, domain, sec_url, args.timeout, headers, args.urlscan_key) for domain in mutated_domain]
         
         for future in futures:
             res = future.result()
@@ -221,7 +277,7 @@ def main():
 
     if args.output and active_results:
         with open(args.output, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["domain", "ip", "status", "details", "url"])
+            writer = csv.DictWriter(f, fieldnames=["domain", "ip", "status", "details", "url", "urlscan"])
             writer.writeheader()
             writer.writerows(active_results)
         print("-" * 60)
