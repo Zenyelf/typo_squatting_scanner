@@ -36,3 +36,51 @@ Ensure you have Python 3.8+ installed along with the required `requests` library
 
 ```bash
 pip install requests urllib3
+```
+
+### 2. Basic Usage
+
+Run a scan against a target domain using default settings (30 worker threads, 3-second timeout):
+
+```bash
+python scanner.py -u amazon.com
+```
+
+### 3. Full Command Example with CSV Export & Threat Intel
+
+```bash
+python scanner.py -u amazon.com -w 50 -t 5 -o findings.csv -us YOUR_URLSCAN_API_KEY
+```
+
+---
+
+## ⚙️ Command-Line Arguments
+
+| Flag | Long Flag | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `-u` | `--url` | **(Required)** Target URL or domain name (e.g., `example.com`). | *None* |
+| `-w` | `--workers` | Number of concurrent thread workers. | `30` |
+| `-t` | `--timeout` | HTTP request timeout in seconds per attempt. | `3` |
+| `-o` | `--output` | Save active findings to a target CSV file path. | *None* |
+| `-us` | `--urlscan-key` | *(Optional)* URLScan.io API Key for automated threat intel lookups. | *None* |
+
+---
+
+## 📊 CSV Export Format
+
+When exporting findings with the `-o` parameter, the CSV generates the following structure:
+
+| Header | Description |
+| :--- | :--- |
+| `domain` | The mutated target domain (e.g., `amszon.com`). |
+| `ip` | Resolved IPv4 address. |
+| `status` | The automated category classification tag. |
+| `details` | Final destination URL, page title, or URLScan report link. |
+| `url` | HTTP response destination URL after all redirects. |
+| `urlscan` | Raw URLScan result summary (if API key provided). |
+
+---
+
+## ⚠️ Disclaimer
+
+This tool is designed strictly for **authorized security research, brand protection, and defensive threat analysis**. Always ensure you have appropriate authorization before assessing domains or infrastructure you do not own.
