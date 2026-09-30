@@ -57,6 +57,9 @@ def generate_mutation(base_url, tlds):
     for idx in range(len(base_url)):
         temp_word = base_url[:idx] + base_url[idx+1:]
 
+        if not temp_word: 
+            continue
+
         for tldx in tlds:
             mutated_domain.add(temp_word + tldx)
 
@@ -148,9 +151,9 @@ def scanner(domain, sec_url, timeout_val, headers, urlscan_key=None):
             r = requests.get(f"https://{domain}", headers=headers, timeout=timeout_val, allow_redirects=True)
         except requests.exceptions.RequestException:
             try:
-                r = requests.get(f"https://{domain}", headers=headers, timeout=timeout_val, allow_redirects=True, verify=False)
+                r = requests.get(f"http://{domain}", headers=headers, timeout=timeout_val, allow_redirects=True, verify=False)
             except requests.exceptions.RequestException:
-                return {"domain": domain, "ip": ip, "status": "TIMEOUT", "details": "HTTP/HTTPS timed out", "url": f"https://{domain}", "urlscan": "N/A"}
+                return {"domain": domain, "ip": ip, "status": "TIMEOUT", "details": "HTTP/HTTPS timed out", "url": f"http://{domain}", "urlscan": "N/A"}
 
         if r is not None:    
             final_host = urlparse(r.url).hostname or ""
