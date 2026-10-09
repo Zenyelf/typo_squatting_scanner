@@ -1,86 +1,87 @@
 # 🛡️ Brand Protection & Typosquatting Threat Scanner
 
-A multi-threaded Python security tool designed to identify, analyze, and monitor domain typosquatting, bit-squatting, and brand impersonation threats in real-time.
+A multi-threaded Python security tool designed to identify and analyze potential domain typosquatting, bitsquatting, and brand impersonation threats.
 
-By generating algorithmic domain mutations and actively inspecting live DNS records, web titles, and redirects, this script helps security teams and brand owners uncover malicious phishing pages, affiliate squatters, parked broker domains, and defensive registration gaps.
+By generating algorithmic domain mutations and inspecting DNS resolution, HTTP/HTTPS responses, redirects, and HTML content, this tool helps security researchers and organizations discover suspicious lookalike domains, potential affiliate squatting, domain parking, and third-party websites.
+
+The scanner also supports optional URLScan.io threat intelligence lookups and CSV reporting to assist with further security investigations.
 
 ---
 
 ## ✨ Features
 
-- **Algorithmic Domain Mutation Engine:**
-  - **Omission:** Identifies missing characters (e.g., `amzon.com`).
-  - **Transposition:** Catches swapped adjacent characters (e.g., `amzaon.com`).
-  - **Fat-Finger (Key Proximity):** Simulates QWERTY keyboard mis-keys (e.g., `amszon.com`).
-  - **Insertion & Duplication:** Detects double-typed or adjacent inserted characters.
-  - **Bitsquatting:** Flips individual binary bits to catch hardware-level DNS resolution glitches.
-  - **Dynamic TLD Generation:** Automatically sweeps popular TLDs (`.net`, `.org`, `.io`, `.xyz`, etc.) + the target's native TLD.
-- **Fast DNS Filtering:** Drops unregistered domains at the OS/DNS level before making unnecessary web requests.
-- **Resilient Probing & Fallbacks:** Seamlessly attempts secure HTTPS, falls back to insecure HTTPS (bypassing broken/self-signed SSL certs), and degrades gracefully to HTTP (Port 80).
-- **Automated Category Classification:**
-  - `SAFE`: Pointing to your official domain infrastructure.
-  - `AFFILIATE_SQUATTING`: Monitored for unauthorized tracking tags (`tag=`, `ref=`).
-  - `FOR_SALE_PARKED`: Identified broker platforms (Sedo, GoDaddy, HugeDomains, etc.).
-  - `PARKED_META_REDIRECT` / `PARKED_JS_REDIRECT`: Uncovers silent client-side redirects.
-  - `UNKNOWN_THIRD_PARTY`: Active third-party hosts with extracted HTML page titles.
-- **Threat Intelligence Integration:** Optional lookup via [URLScan.io](https://urlscan.io/) API to highlight known malicious ratings and active community scan reports.
-- **Multi-Threaded Execution:** Configurable worker pools (`ThreadPoolExecutor`) for high-speed scanning.
-- **CSV Export Support:** Export actionable findings to a structured CSV file for reporting and remediation.
+### 1. Algorithmic Domain Mutation Engine
 
----
+Generates domain variations using multiple mutation techniques:
 
-## 🚀 Quick Start
+- **Omission:** Removes individual characters (e.g., `amzon.com`).
+- **Transposition:** Swaps adjacent characters (e.g., `amzaon.com`).
+- **Fat-Finger (Keyboard Proximity):** Replaces characters with neighboring QWERTY keyboard keys (e.g., `amszon.com`).
+- **Duplication:** Repeats individual characters (e.g., `amazonn.com`).
+- **Adjacent-Key Insertion:** Inserts neighboring keyboard characters before or after existing characters.
+- **Bitsquatting:** Generates variations by flipping individual bits in character representations, retaining valid lowercase letters and digits.
+- **TLD Generation:** Generates variations across nine predefined TLDs: `.net`, `.org`, `.co`, `.io`, `.xyz`, `.cm`, `.info`, `.biz`, and `.com`.
 
-### 1. Prerequisites
-Ensure you have Python 3.8+ installed along with the required `requests` library:
+A Python `set` automatically removes duplicate generated domains.
 
-```bash
-pip install requests urllib3
-```
+### 2. DNS Resolution Filtering
 
-### 2. Basic Usage
+Uses Python's `socket.gethostbyname()` to resolve generated domains to IPv4 addresses.
 
-Run a scan against a target domain using default settings (30 worker threads, 3-second timeout):
+- Skips domains that fail IPv4 DNS resolution.
+- Reduces unnecessary HTTP requests to non-resolving domains.
+- Records the resolved IPv4 address for each successfully resolved domain.
 
-```bash
-python scanner.py -u amazon.com
-```
+**Note:** A failed IPv4 lookup does not necessarily mean a domain is unregistered. The current implementation does not perform IPv6 resolution, WHOIS, or RDAP registration checks.
 
-### 3. Full Command Example with CSV Export & Threat Intel
+### 3. HTTP/HTTPS Website Inspection
 
-```bash
-python scanner.py -u amazon.com -w 50 -t 5 -o findings.csv -us YOUR_URLSCAN_API_KEY
-```
+Inspects successfully resolved domains using Python's `requests` library.
 
----
+The current connection sequence is:
 
-## ⚙️ Command-Line Arguments
+1. Attempt HTTPS with normal TLS certificate verification.
+2. If the HTTPS request fails, attempt HTTP.
+3. Follow HTTP redirects automatically.
+4. If both requests fail, return a `TIMEOUT` classification.
 
-| Flag | Long Flag | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `-u` | `--url` | **(Required)** Target URL or domain name (e.g., `example.com`). | *None* |
-| `-w` | `--workers` | Number of concurrent thread workers. | `30` |
-| `-t` | `--timeout` | HTTP request timeout in seconds per attempt. | `3` |
-| `-o` | `--output` | Save active findings to a target CSV file path. | *None* |
-| `-us` | `--urlscan-key` | *(Optional)* URLScan.io API Key for automated threat intel lookups. | *None* |
+The scanner collects the final response URL and inspects HTML content for indicators of domain parking and client-side redirects.
 
----
+**Note:** The `TIMEOUT` classification can also represent other connection-related failures. The scanner does not retry HTTPS with disabled certificate verification.
 
-## 📊 CSV Export Format
+### 4. Automated Domain Classification
 
-When exporting findings with the `-o` parameter, the CSV generates the following structure:
+Categorizes successfully inspected websites using rule-based analysis.
 
-| Header | Description |
-| :--- | :--- |
-| `domain` | The mutated target domain (e.g., `amszon.com`). |
-| `ip` | Resolved IPv4 address. |
-| `status` | The automated category classification tag. |
-| `details` | Final destination URL, page title, or URLScan report link. |
-| `url` | HTTP response destination URL after all redirects. |
-| `urlscan` | Raw URLScan result summary (if API key provided). |
+| Classification | Description |
+|---|---|
+| `SAFE` | Final hostname matches the target domain or its subdomains, without detected `tag=` or `ref=` URL strings. |
+| `AFFILIATE_SQUATTING` | Final hostname matches the target domain or its subdomains and the final URL contains `tag=` or `ref=`. |
+| `FOR_SALE_PARKED` | Final URL matches a known domain broker string, or HTML contains recognized domain-sale phrases. |
+| `PARKED_META_REDIRECT` | HTML contains both `url=` and `refresh`, suggesting a possible meta-refresh redirect. |
+| `PARKED_JS_REDIRECT` | HTML contains `window.location`, suggesting possible JavaScript redirection. |
+| `UNKNOWN_THIRD_PARTY` | Website does not match the other classification rules. Its HTML title is extracted when available. |
+| `TIMEOUT` | IPv4 DNS resolution succeeded, but both HTTPS and HTTP attempts failed. |
 
----
+**Important:** These classifications are heuristic indicators, not definitive security verdicts.
 
-## ⚠️ Disclaimer
+A `SAFE` result does not verify ownership or authorization of the original domain. Similarly, affiliate parameters, redirect indicators, and domain parking do not independently prove malicious activity.
 
-This tool is designed strictly for **authorized security research, brand protection, and defensive threat analysis**. Always ensure you have appropriate authorization before assessing domains or infrastructure you do not own.
+### 5. Threat Intelligence Integration
+
+Supports optional lookups through the [URLScan.io](https://urlscan.io/) Search API.
+
+When an API key is provided, the scanner queries existing scan results for domains not classified as `SAFE`.
+
+Based on the first returned result, the scanner attempts to:
+
+- Retrieve an overall malicious verdict and score.
+- Report a potentially malicious result if the malicious field is true or the score is greater than zero.
+- Include a scan report URL when available.
+- Identify when no previous results are returned.
+- Handle HTTP errors, rate limiting, and request failures.
+
+**Limitations:**
+
+- The scanner queries existing URLScan.io records; it does not submit new website scans.
+- The implementation assumes the first search result represents
